@@ -36,7 +36,9 @@ public class VeritasAgent {
         for (String p : a.getOrDefault("unfold", "").split(","))      // §3.1-1 nested field paths
             if (!p.trim().isEmpty()) Recorder.unfoldPaths.add(p.trim());
         if ("false".equalsIgnoreCase(a.getOrDefault("redact", "true"))) Redactor.enabled = false;
-        long flushMs = Long.parseLong(a.getOrDefault("flushMs", "0"));   // §3.1-5 periodic flush
+        long flushMs = 0;                                               // §3.1-5 periodic flush
+        try { flushMs = Long.parseLong(a.getOrDefault("flushMs", "0").trim()); }
+        catch (NumberFormatException e) { System.err.println("[veritas] bad flushMs, disabling periodic flush"); }
 
         Set<String> getters = new HashSet<>();
         for (String s : a.getOrDefault("configGetter", "").split(","))
@@ -63,9 +65,10 @@ public class VeritasAgent {
         b.installOn(inst);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> TraceWriter.write(out)));
         if (flushMs > 0) {                                  // §3.1-5 periodic flush (crash-safe)
+            final long every = flushMs;
             Thread flusher = new Thread(() -> {
                 while (true) {
-                    try { Thread.sleep(flushMs); } catch (InterruptedException e) { return; }
+                    try { Thread.sleep(every); } catch (InterruptedException e) { return; }
                     TraceWriter.write(out);
                 }
             });

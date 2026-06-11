@@ -33,12 +33,14 @@ public final class Redactor {
         return value(value);
     }
 
-    /** Shape-based redaction independent of name (emails / long digit runs in free text). */
+    /** Shape-based redaction independent of name. Replaces only the MATCHED SPAN (an embedded
+     *  email/long-number in a larger string is redacted in place; surrounding domain text is
+     *  preserved). Number-typed values never reach here (they skip Redactor.value). */
     static Object value(Object v) {
         if (!enabled || !(v instanceof String)) return v;
         String s = (String) v;
-        if (EMAIL.matcher(s).find()) return "<redacted:email>";
-        if (LONG_DIGITS.matcher(s).find()) return "<redacted:number>";
-        return v;
+        String r = EMAIL.matcher(s).replaceAll("<redacted:email>");
+        r = LONG_DIGITS.matcher(r).replaceAll("<redacted:number>");
+        return r;
     }
 }

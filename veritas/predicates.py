@@ -74,12 +74,26 @@ def _eq(a, b):
     return ka == kb
 
 
-_OPS = {
-    "==": lambda a, b: a == b, "!=": lambda a, b: a != b,
-    "<": lambda a, b: a < b, ">": lambda a, b: a > b,
-    "<=": lambda a, b: a <= b, ">=": lambda a, b: a >= b,
-    "in": lambda a, b: a in b,
-}
+_ORDER_OPS = {"<", ">", "<=", ">="}
+_KNOWN_OPS = _ORDER_OPS | {"==", "!=", "in"}
+
+
+def _apply_op(op, a, b):
+    """Type-safe op application: numeric coercion when both sides are numeric, else string
+    comparison. Never raises on a type mismatch (that path returns a falsey result, and the
+    caller surfaces UNVERIFIABLE rather than a crash or a false verdict)."""
+    if op == "in":
+        try:
+            return a in b
+        except TypeError:
+            return False
+    if op == "==":
+        return _eq(a, b)
+    if op == "!=":
+        return not _eq(a, b)
+    ka, kb = _numkey(a), _numkey(b)
+    av, bv = (ka[1], kb[1]) if (ka[0] == 1 and kb[0] == 1) else (str(a), str(b))
+    return {"<": av < bv, ">": av > bv, "<=": av <= bv, ">=": av >= bv}[op]
 
 
 def _summ(d: Any) -> str:
@@ -134,15 +148,15 @@ def eval_value(pred: Predicate, invs: list[Invocation]) -> EvalResult:
     if not invs:
         return EvalResult(None, "anchor method captured no invocations", {},
                           missing="drive a scenario that executes the anchor so its values are captured")
-    op = _OPS.get(pred.op or "==")
-    if op is None:
+    op = pred.op or "=="
+    if op not in _KNOWN_OPS:
         return EvalResult(None, f"unsupported op '{pred.op}'", {})
     for inv in invs:
         ok, val = _resolve(inv, pred.field or "ret")
         if not ok:
             return EvalResult(None, f"field '{pred.field}' not captured", {},
                               missing=f"add '{pred.field}' to the capture allowlist")
-        if not op(val, pred.value):
+        if not _apply_op(op, val, pred.value):
             return EvalResult(False, f"{pred.field} = {val}, expected {pred.op} {pred.value}",
                               {"field": pred.field, "observed": val, "op": pred.op, "expected": pred.value})
     ok, val = _resolve(invs[0], pred.field or "ret")
@@ -155,8 +169,10 @@ def eval_config(pred: Predicate, obs: Observation) -> EvalResult:
         return EvalResult(None, f"config key '{pred.key}' not observed live", {},
                           missing=f"drive a scenario whose path reads '{pred.key}', or widen config capture")
     live = obs.config_live[pred.key]
-    op = _OPS.get(pred.op or "==")
-    holds = op(live, pred.value)
+    op = pred.op or "=="
+    if op not in _KNOWN_OPS:
+        return EvalResult(None, f"unsupported op '{pred.op}'", {})
+    holds = _apply_op(op, live, pred.value)
     detail = f"{pred.key} (live) = {live!r}, expected {pred.op} {pred.value!r}"
     return EvalResult(holds, detail, {"key": pred.key, "live": live, "op": pred.op, "expected": pred.value})
 
@@ -173,14 +189,19 @@ def eval_path(pred: Predicate, obs: Observation) -> EvalResult:
 
 
 def evaluate(pred: Predicate, obs: Observation) -> EvalResult:
-    """Dispatch by kind. Anchor method for relationship/value comes from pred.method."""
+    """Dispatch by kind. Any evaluation error → UNVERIFIABLE (never a crash, never a false
+    verdict): an unexpected type/shape in the captured values must not be read as a contradiction."""
     from .models import Kind
-    if pred.kind == Kind.RELATIONSHIP:
-        return eval_relationship(pred, obs.invocations_of(pred.method) if pred.method else obs.invocations)
-    if pred.kind == Kind.VALUE:
-        return eval_value(pred, obs.invocations_of(pred.method) if pred.method else obs.invocations)
-    if pred.kind == Kind.CONFIG:
-        return eval_config(pred, obs)
-    if pred.kind == Kind.PATH:
-        return eval_path(pred, obs)
-    return EvalResult(None, f"unknown predicate kind {pred.kind}", {})
+    try:
+        if pred.kind == Kind.RELATIONSHIP:
+            return eval_relationship(pred, obs.invocations_of(pred.method) if pred.method else obs.invocations)
+        if pred.kind == Kind.VALUE:
+            return eval_value(pred, obs.invocations_of(pred.method) if pred.method else obs.invocations)
+        if pred.kind == Kind.CONFIG:
+            return eval_config(pred, obs)
+        if pred.kind == Kind.PATH:
+            return eval_path(pred, obs)
+        return EvalResult(None, f"unknown predicate kind {pred.kind}", {})
+    except Exception as e:  # safety net: malformed predicate/values never crash or false-contradict
+        return EvalResult(None, f"could not evaluate predicate ({type(e).__name__}: {e})", {},
+                          missing="refine the predicate or capture — the values didn't match its expected shape")

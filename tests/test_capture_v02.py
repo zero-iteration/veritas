@@ -7,8 +7,8 @@ from veritas.models import (
 from veritas.join import join, merge_observations
 
 
-def _exp(pred):
-    return Expectation(id="exp_0001", claim="c", kind=Kind.RELATIONSHIP,
+def _exp(pred, kind=Kind.RELATIONSHIP):
+    return Expectation(id="exp_0001", claim="c", kind=kind,
                        anchor=CodeAnchor(symbol="com.x.Sel.pick"), predicate=pred,
                        source=Source.AGENT, status=Status.OPEN, grade=Grade.HYPOTHESIS)
 
@@ -67,3 +67,28 @@ def test_accretive_merge():
     v = join(_exp(p), [o1, o2], env="staging")
     assert v.type == VerdictType.CONFIRMED
     assert len(v.config_divergences) == 1           # divergence surfaced from the merged config
+
+
+def test_sha_partition_no_false_contradicted_after_fix():
+    # pre-fix (wrong) and post-fix (correct) traces in the same env. Verdict must follow the
+    # LATEST git_sha only — a fixed bug must NOT still read CONTRADICTED. (v0.2 integrity fix.)
+    cand = [{"id": "A", "price": 549}, {"id": "B", "price": 519}]
+    bad = Invocation(method="com.x.Sel.pick", args={"candidates": cand}, ret={"id": "A", "price": 549})
+    good = Invocation(method="com.x.Sel.pick", args={"candidates": cand}, ret={"id": "B", "price": 519})
+    o_pre = Observation(id="pre", fingerprint=EnvFingerprint(env="staging", git_sha="AAA", timestamp=1000),
+                        methods_executed=["com.x.Sel.pick"], invocations=[bad])
+    o_post = Observation(id="post", fingerprint=EnvFingerprint(env="staging", git_sha="BBB", timestamp=2000),
+                         methods_executed=["com.x.Sel.pick"], invocations=[good])
+    p = Predicate(kind=Kind.RELATIONSHIP, over="candidates", select="argmin", by="price",
+                  equals="ret", method="com.x.Sel.pick", human="cheapest wins")
+    v = join(_exp(p), [o_pre, o_post], env="staging")
+    assert v.type == VerdictType.CONFIRMED           # only sha BBB (fixed) is merged
+
+
+def test_value_op_type_mismatch_no_crash():
+    # captured-as-string field vs numeric literal under '<' must not raise (was a CLI crash)
+    inv = Invocation(method="com.x.Sel.pick", args={}, ret={"price": "5400"})
+    p = Predicate(kind=Kind.VALUE, field="ret.price", op="<", value=5100,
+                  method="com.x.Sel.pick", human="price < 5100")
+    v = join(_exp(p, kind=Kind.VALUE), [_obs([inv])], env="staging")
+    assert v.type == VerdictType.CONTRADICTED        # 5400 (coerced) is not < 5100 — no crash

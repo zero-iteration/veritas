@@ -54,7 +54,7 @@ public final class Recorder {
             if (captureMethods.contains(method.substring(dot + 1))) return true;   // bare name
             int dot2 = method.lastIndexOf('.', dot - 1);
             if (dot2 >= 0 && captureMethods.contains(method.substring(dot2 + 1))) return true;  // Class.method
-        } else if (captureMethods.contains(method)) return true;
+        }
         return false;
     }
 }

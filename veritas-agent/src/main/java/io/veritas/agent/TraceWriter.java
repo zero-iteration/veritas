@@ -10,7 +10,7 @@ import java.util.*;
 public final class TraceWriter {
     private TraceWriter() {}
 
-    public static void write(String path) {
+    public static synchronized void write(String path) {   // flusher + shutdown hook must not interleave
         try {
             Map<String, Object> fp = new LinkedHashMap<>();
             fp.put("env", System.getProperty("veritas.env", "local"));
@@ -40,7 +40,15 @@ public final class TraceWriter {
 
             StringBuilder sb = new StringBuilder();
             json(root, sb);
-            Files.write(Paths.get(path), sb.toString().getBytes(StandardCharsets.UTF_8));
+            // write to a temp file then atomically rename, so a reader never sees a partial trace
+            Path target = Paths.get(path);
+            Path tmp = Paths.get(path + ".tmp");
+            Files.write(tmp, sb.toString().getBytes(StandardCharsets.UTF_8));
+            try {
+                Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
             System.err.println("[veritas] wrote " + path + "  (" + Recorder.methods.size() + " methods, "
                     + Recorder.invocations.size() + " invocations, " + Recorder.configLive.size() + " config keys)");
         } catch (IOException e) {

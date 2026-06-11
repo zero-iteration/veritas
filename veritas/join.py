@@ -66,7 +66,16 @@ def merge_observations(obs_list: list[Observation]) -> Observation:
 def select_observation(exp: Expectation, observations: list[Observation],
                        env: Optional[str]) -> Optional[Observation]:
     cands = [o for o in observations if env is None or o.fingerprint.env == env]
-    return merge_observations(cands) if cands else None
+    if not cands:
+        return None
+    # Partition by code version: merge only observations matching the LATEST git_sha, so a
+    # pre-fix invocation can never contaminate a post-fix verdict (the one v0.2 integrity bug).
+    # Fall back to merging all only when the latest observation has no sha.
+    latest = max(cands, key=lambda o: o.fingerprint.timestamp)
+    sha = latest.fingerprint.git_sha
+    if sha:
+        cands = [o for o in cands if o.fingerprint.git_sha == sha]
+    return merge_observations(cands)
 
 
 def join(exp: Expectation, observations: list[Observation], env: Optional[str] = None,
