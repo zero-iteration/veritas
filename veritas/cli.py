@@ -55,6 +55,10 @@ def cmd_ingest(a):
           f"invocations={len(obs.invocations)}  config_live={len(obs.config_live)}")
 
 
+def cmd_capture_args(a):
+    print(json.dumps(_ws(a).capture_args(), indent=2))
+
+
 def cmd_list(a):
     ws = _ws(a)
     for e in ws.exp.all():
@@ -95,6 +99,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     pi = s.add_parser("ingest", help="ingest a capture-agent trace")
     pi.add_argument("trace"); pi.add_argument("--config"); pi.add_argument("--env"); pi.set_defaults(fn=cmd_ingest)
+
+    pca = s.add_parser("capture-args", help="derive agent attach args (scope/captureValues/unfold) from expectations")
+    pca.set_defaults(fn=cmd_capture_args)
 
     pl = s.add_parser("list", help="list expectations + observations"); pl.set_defaults(fn=cmd_list)
     return p

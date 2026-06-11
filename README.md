@@ -82,10 +82,19 @@ path         : {method, must: executed|not_executed}                    # was it
 
 ## Status
 
-v0.1 works end to end on real capture: deep values + config-getter keying + private methods;
-CLI + MCP (`verify` / `explain` / `observed-config` / `diff` / `drive`); oracle with
-self-invalidating anchors; core join behavior locked by tests.
+**v0.2** (shipped): end-to-end on real capture, plus the capture-hardening that unblocks
+real services —
+- **expectation-driven nested field unfolding** (`unfold=breakdown.netPrice` captures fields
+  two POJOs deep, depth-exempt) — derive the attach args with `veritas capture-args`;
+- **PII redaction** at write time (field-name denylist + value-shape redactors);
+- **class-qualified** `captureValues` (`Class.method`), **periodic flush** (crash-safe);
+- engine: **dotted by-paths**, **numeric coercion** guard, **accretive observation merge**.
 
-Roadmap: drive layer (endpoint discovery + reproduction synthesis + write-safety classifier);
-scenario library / replay; the **GroundedDebug** benchmark (`docs/grounded-debug.md`) — the
-flip-rate number for config/value-dependent bugs. Scoped to JVM/Spring first.
+v0.1 base: deep values + config-getter keying + private methods; CLI + MCP
+(`verify`/`explain`/`observed-config`/`diff`/`drive`/`capture-args`); self-invalidating
+anchors; behavior locked by 10 tests.
+
+Roadmap: the **drive layer** (endpoint discovery + reproduction synthesis + write-safety
+classifier + scenario replay) — the supply side, currently a HITL scaffold; session-start
+**push hook** (inject open contradictions + config divergences); grow the **GroundedDebug**
+benchmark (`docs/grounded-debug.md`) to 10+ bugs for the flip-rate number. JVM/Spring first.

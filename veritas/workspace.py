@@ -114,6 +114,42 @@ class Workspace:
                        f"+{len(mb-ma)}/-{len(ma-mb)} paths between {before_id} and {after_id}",
         }
 
+    # -- capture args derived from expectations (unblocks attach) ----------
+    def capture_args(self) -> dict:
+        """Derive the agent attach args from registered expectations: scope, the methods to
+        deep-capture (Class.method), and the nested `unfold` field paths (§3.1-1)."""
+        classes, methods, unfold = set(), set(), set()
+        for e in self.exp.all():
+            sym = e.predicate.method or e.anchor.symbol
+            parts = sym.split(".")
+            if len(parts) >= 2:
+                classes.add(".".join(parts[:-1])); methods.add(".".join(parts[-2:]))
+            by = e.predicate.by
+            if by and "." in by:
+                unfold.add(by)
+            fld = e.predicate.field
+            if fld:
+                f = fld.split(".", 1)[1] if fld.split(".")[0] in ("ret", "arg") else fld
+                if "." in f:
+                    unfold.add(f)
+        # scope = longest common package prefix of the anchored classes
+        scope = ""
+        if classes:
+            segs = [c.split(".") for c in classes]
+            common = []
+            for tup in zip(*segs):
+                if len(set(tup)) == 1:
+                    common.append(tup[0])
+                else:
+                    break
+            scope = ".".join(common) or sorted(classes)[0].rsplit(".", 1)[0]
+        args = f"scope={scope};out=trace.json;captureValues={','.join(sorted(methods))}"
+        if unfold:
+            args += f";unfold={','.join(sorted(unfold))}"
+        args += ";configGetter=<your property getter, e.g. getPropertyValue>"
+        return {"scope": scope, "captureValues": sorted(methods), "unfold": sorted(unfold),
+                "suggested_javaagent": f"-javaagent:veritas-agent.jar={args}"}
+
     # -- drive (HITL scaffold) ---------------------------------------------
     def drive(self, scenario_or_ticket: str, env: str = "staging") -> dict:
         """v1 keeps the human in the loop. Drafts a scenario request from the static
@@ -124,6 +160,7 @@ class Workspace:
             "scenario": scenario_or_ticket, "env": env,
             "suggested_request": endpoints[0] if endpoints else
                 {"method": "GET", "path": "<choose from `veritas endpoints`>", "body": None},
+            "attach": self.capture_args(),     # how to instrument for the open expectations
             "gaps_to_fill": ["auth token", "cohort/route data", "env-specific ids"],
             "safety": "read-only by default; write/booking/payment paths require --allow-writes",
             "next": "fire at an instrumented instance, then `veritas ingest <trace.json>` to auto-join",

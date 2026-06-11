@@ -44,6 +44,36 @@ def _resolve(inv: Invocation, path: str) -> tuple[bool, Any]:
 
 
 _MISSING = object()
+
+
+def _dig(d, dotted):
+    """Resolve a dotted path inside a captured field-dict (e.g. 'breakdown.netPrice')."""
+    cur = d
+    for p in dotted.split("."):
+        if isinstance(cur, dict) and p in cur:
+            cur = cur[p]
+        else:
+            return False, None
+    return True, cur
+
+
+def _numkey(v):
+    """Numeric coercion guard (§3.2): order/compare by-field values numerically when possible."""
+    if isinstance(v, bool):
+        return (1, int(v))
+    if isinstance(v, (int, float)):
+        return (1, float(v))
+    try:
+        return (1, float(v))
+    except (TypeError, ValueError):
+        return (0, str(v))
+
+
+def _eq(a, b):
+    ka, kb = _numkey(a), _numkey(b)
+    return ka == kb
+
+
 _OPS = {
     "==": lambda a, b: a == b, "!=": lambda a, b: a != b,
     "<": lambda a, b: a < b, ">": lambda a, b: a > b,
@@ -71,17 +101,22 @@ def eval_relationship(pred: Predicate, invs: list[Invocation]) -> EvalResult:
         coll = inv.args.get(pred.over)
         if not isinstance(coll, list) or not coll:
             return EvalResult(None, f"collection arg '{pred.over}' not captured as a list", {},
-                              missing=f"register field unfolding for '{pred.over}' elements (allowlist {by})")
-        if not all(isinstance(e, dict) and by in e for e in coll):
-            return EvalResult(None, f"field '{by}' not captured on '{pred.over}' elements", {},
-                              missing=f"add '{by}' to the capture allowlist for elements of '{pred.over}'")
+                              missing=f"register field unfolding for '{pred.over}' elements (unfold={by})")
+        elems = []
+        for e in coll:
+            ok, val = _dig(e, by) if isinstance(e, dict) else (False, None)
+            if not ok:
+                return EvalResult(None, f"field '{by}' not captured on '{pred.over}' elements", {},
+                                  missing=f"add `unfold={by}` to the capture args so '{pred.over}' elements expose it")
+            elems.append((val, e))
         ok_ret, ret_val = _resolve(inv, pred.equals or "ret")
-        if not ok_ret or not isinstance(ret_val, dict) or by not in ret_val:
+        okb, ret_by = (_dig(ret_val, by) if (ok_ret and isinstance(ret_val, dict)) else (False, None))
+        if not okb:
             return EvalResult(None, f"return value's '{by}' not captured", {},
-                              missing=f"add '{by}' to the capture allowlist for the return type")
-        best = (min if sel == "argmin" else max)(coll, key=lambda e: e[by])
-        chosen_by, best_by = ret_val[by], best[by]
-        holds = (chosen_by == best_by)
+                              missing=f"add `unfold={by}` so the returned element exposes it")
+        best_by, best = (min if sel == "argmin" else max)(elems, key=lambda p: _numkey(p[0]))
+        chosen_by = ret_by
+        holds = _eq(chosen_by, best_by)
         if not holds:
             return EvalResult(
                 False,

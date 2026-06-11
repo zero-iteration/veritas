@@ -33,6 +33,11 @@ public class VeritasAgent {
         if ("*".equals(cv)) Recorder.captureAll = true;
         else for (String s : cv.split(",")) if (!s.trim().isEmpty()) Recorder.captureMethods.add(s.trim());
 
+        for (String p : a.getOrDefault("unfold", "").split(","))      // §3.1-1 nested field paths
+            if (!p.trim().isEmpty()) Recorder.unfoldPaths.add(p.trim());
+        if ("false".equalsIgnoreCase(a.getOrDefault("redact", "true"))) Redactor.enabled = false;
+        long flushMs = Long.parseLong(a.getOrDefault("flushMs", "0"));   // §3.1-5 periodic flush
+
         Set<String> getters = new HashSet<>();
         for (String s : a.getOrDefault("configGetter", "").split(","))
             if (!s.trim().isEmpty()) getters.add(s.trim());
@@ -57,8 +62,17 @@ public class VeritasAgent {
 
         b.installOn(inst);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> TraceWriter.write(out)));
-        System.err.println("[veritas] scope=" + scope + " out=" + out
-                + " captureValues=" + cv + " configGetter=" + getters);
+        if (flushMs > 0) {                                  // §3.1-5 periodic flush (crash-safe)
+            Thread flusher = new Thread(() -> {
+                while (true) {
+                    try { Thread.sleep(flushMs); } catch (InterruptedException e) { return; }
+                    TraceWriter.write(out);
+                }
+            });
+            flusher.setDaemon(true); flusher.setName("veritas-flush"); flusher.start();
+        }
+        System.err.println("[veritas] scope=" + scope + " out=" + out + " captureValues=" + cv
+                + " unfold=" + Recorder.unfoldPaths + " redact=" + Redactor.enabled + " configGetter=" + getters);
     }
 
     private static Map<String, String> parse(String arg) {

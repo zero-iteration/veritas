@@ -43,16 +43,30 @@ def _anchor_method(exp: Expectation) -> Optional[str]:
     return exp.predicate.method or exp.anchor.symbol
 
 
+def merge_observations(obs_list: list[Observation]) -> Observation:
+    """Accretive merge (§3.2): combine qualifying observations into one — union of methods,
+    all invocations, edges concatenated, config latest-wins. Coverage accretes instead of
+    picking a single most-recent run (one scenario may execute the path, another the config)."""
+    obs_list = sorted(obs_list, key=lambda o: o.fingerprint.timestamp)
+    latest = obs_list[-1]
+    methods: list[str] = []
+    seen, invs, edges = set(), [], []
+    cfg_live, cfg_file = {}, {}
+    for o in obs_list:
+        for m in o.methods_executed:
+            if m not in seen:
+                seen.add(m); methods.append(m)
+        invs.extend(o.invocations); edges.extend(o.edges)
+        cfg_live.update(o.config_live); cfg_file.update(o.config_file)   # asc ts -> latest wins
+    return Observation(id=f"merged_{latest.fingerprint.env}", fingerprint=latest.fingerprint,
+                       methods_executed=methods, edges=edges, invocations=invs,
+                       config_live=cfg_live, config_file=cfg_file, trace_ref=latest.trace_ref)
+
+
 def select_observation(exp: Expectation, observations: list[Observation],
                        env: Optional[str]) -> Optional[Observation]:
-    """Most-recent qualifying observation, preferring ones where the anchor executed."""
     cands = [o for o in observations if env is None or o.fingerprint.env == env]
-    if not cands:
-        return None
-    am = _anchor_method(exp)
-    ran = [o for o in cands if am and am in o.methods_set()]
-    pool = ran or cands
-    return max(pool, key=lambda o: o.fingerprint.timestamp)
+    return merge_observations(cands) if cands else None
 
 
 def join(exp: Expectation, observations: list[Observation], env: Optional[str] = None,

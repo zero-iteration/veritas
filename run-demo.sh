@@ -15,7 +15,7 @@ echo ">> compiling demo target (-parameters for real param names)..."
 
 echo ">> running demo WITH capture agent attached..."
 (cd samples/checkout-demo && java \
-  -javaagent:"../../$AGENT"=scope=com.example';'out=trace.json';'captureValues=pick';'configGetter=resolve \
+  -javaagent:"../../$AGENT"=scope=com.example';'out=trace.json';'captureValues=RateSelector.pick';'unfold=breakdown.netPrice';'configGetter=resolve \
   -Dveritas.env=staging -Dveritas.sha=0fed1b1c -Dveritas.trace=run_0617 \
   -cp classes com.example.Main)
 
