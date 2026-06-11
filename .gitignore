@@ -1,0 +1,16 @@
+# veritas workspace state
+.veritas/
+.demo/
+# python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+build/
+dist/
+# java
+target/
+classes/
+*.class
+samples/**/trace.json
+veritas-agent/dependency-reduced-pom.xml

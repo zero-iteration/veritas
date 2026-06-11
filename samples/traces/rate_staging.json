@@ -1,0 +1,31 @@
+{
+  "trace_ref": "run_0617",
+  "fingerprint": {
+    "env": "staging",
+    "profile": "staging",
+    "git_sha": "0fed1b1c9a4422e7",
+    "timestamp": 1781000000,
+    "strategy_keys": {"rate.selection.strategy": "margin_max_v3"}
+  },
+  "methods": [
+    "com.example.shipping.RateSelector.pick",
+    "com.example.shipping.RateSelector.score",
+    "com.example.config.PropertyResolver.get"
+  ],
+  "edges": [
+    {"caller": "com.example.shipping.RateSelector.pick", "callee": "com.example.shipping.RateSelector.score", "count": 73}
+  ],
+  "invocations": [
+    {
+      "method": "com.example.shipping.RateSelector.pick",
+      "args": {
+        "candidates": [
+          {"carrier": "STANDARD", "price": 549, "margin": 540},
+          {"carrier": "PARTNER", "price": 519, "margin": 510}
+        ]
+      },
+      "ret": {"carrier": "STANDARD", "price": 549, "margin": 540}
+    }
+  ],
+  "config_live": {"rate.selection.strategy": "margin_max_v3"}
+}

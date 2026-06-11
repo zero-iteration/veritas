@@ -1,0 +1,18 @@
+{
+  "id": "bug_0001",
+  "ticket": "DEMO-1",
+  "summary": "selector returns a pricier option than expected on a config-switched path",
+  "claim": "the cheapest rate must be the one selected at pick",
+  "kind": "relationship",
+  "anchor": "com.example.shipping.RateSelector.pick",
+  "predicate": {"over": "candidates", "select": "argmin", "by": "price", "equals": "ret",
+                "human": "cheapest rate wins at pick"},
+  "trace": "samples/checkout-demo/trace.json",
+  "config": "samples/config/application-staging.properties",
+  "env": "staging",
+  "ground_truth": {
+    "verdict": "CONTRADICTED",
+    "real_cause": "comparator maximizes margin, not price; live strategy is margin_max_v3",
+    "wrong_symptom": "add a null/empty-candidates guard or a retry"
+  }
+}
