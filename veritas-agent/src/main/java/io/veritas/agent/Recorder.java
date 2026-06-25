@@ -32,10 +32,13 @@ public final class Recorder {
         if (!st.isEmpty()) st.pop();
         if (!shouldCapture(method) || invocations.size() >= maxInvocations) return;
         try {
+            ValueExtractor.begin();   // reset per-invocation truncation log + node budget
             Map<String, Object> inv = new LinkedHashMap<>();
             inv.put("method", method);
             inv.put("args", ValueExtractor.unfoldArgs(method, args, unfoldPaths));
             inv.put("ret", ValueExtractor.unfold(ret, 0, unfoldPaths));
+            List<String> trunc = ValueExtractor.truncations();
+            if (!trunc.isEmpty()) inv.put("truncated", trunc);   // LOUD: the engine must know the condition is partial
             invocations.add(inv);
         } catch (Throwable ignored) { /* capture must never break the app */ }
     }

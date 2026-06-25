@@ -28,6 +28,10 @@ class Stability(str, Enum):
     UNCONFIRMED = "unconfirmed"        # seen once; deterministic-looking but not yet proven
     DISTRIBUTIONAL = "distributional"  # numeric value that varies across identical input
     NOISE = "noise"                    # non-numeric value that varies across identical input
+    CAPTURE_GAP = "capture_gap"        # varies, but the CONDITION was truncated — may be false
+                                       # non-determinism from a collapsed input (§11.1). LOUD, never
+                                       # silently dropped: the worst failure for a verifier is to
+                                       # mistake a capture gap for determinism and stop watching.
 
 
 @dataclass
@@ -61,6 +65,11 @@ class VarianceReport:
 
     def distributional(self) -> list[CulledFact]:
         return [c for c in self.culled if c.stability == Stability.DISTRIBUTIONAL]
+
+    def capture_gaps(self) -> list[CulledFact]:
+        """Facts the engine refuses to judge because capture truncated their condition. These are
+        a CALL TO ACTION (raise a cap / add an unfold path), surfaced loudly — never swallowed."""
+        return [c for c in self.culled if c.stability == Stability.CAPTURE_GAP]
 
     def summary(self) -> dict:
         from collections import Counter
@@ -101,13 +110,23 @@ def cull(facts: list[Fact]) -> VarianceReport:
         distinct = len(by_canon)
         rep = fs[-1]  # representative carries the latest value/sample
         spread = list(by_canon.values())
+        # the condition is trustworthy only if EVERY contributing fact was fully captured; one
+        # truncated arg poisons the whole (anchor, condition) group (§11.1).
+        condition_complete = all(getattr(f, "condition_complete", True) for f in fs)
 
         if distinct == 1:
-            stability = Stability.STABLE if runs >= 2 else Stability.UNCONFIRMED
-            spread = []
+            if not condition_complete:
+                stability = Stability.UNCONFIRMED  # value agrees, but on a PARTIAL condition — don't trust it
+            else:
+                stability = Stability.STABLE if runs >= 2 else Stability.UNCONFIRMED
+                spread = []
+        elif not condition_complete:
+            # value moved AND the condition was truncated: the variation may be an artifact of
+            # distinct inputs collapsing into one observed condition. Refuse to call it noise.
+            stability = Stability.CAPTURE_GAP
         else:
-            # value moved under identical input: distributional if it's a moving number
-            # (frequency/latency-like), otherwise noise to quotient out (timestamps, ids).
+            # value moved under a fully-observed identical input: distributional if a moving number
+            # (frequency/latency-like), otherwise true noise to quotient out (timestamps, ids).
             if rep.kind == FactKind.FREQUENCY or _all_numeric(spread):
                 stability = Stability.DISTRIBUTIONAL
             else:

@@ -142,16 +142,28 @@ class Expectation:
 @dataclass
 class Invocation:
     """One captured call of a method: unfolded argument fields + return fields.
-    Values are decision-field values (primitives/boxed/String), NOT type names."""
+    Values are decision-field values (primitives/boxed/String), NOT type names.
+
+    `truncated` lists capture sites where a cap was hit (e.g. "candidates[0]: field cap 512").
+    It is the LOUD half of capture completeness (§11.1): a dropped field collapses distinct
+    inputs to one condition, so the engine must know the condition was only partially observed
+    rather than silently treating it as determinism. Paths not prefixed "ret" truncate the args
+    — i.e. they corrupt the condition itself, the worst case."""
     method: str
     args: dict[str, Any] = field(default_factory=dict)   # name -> scalar | {field:val} | [ {field:val}, ... ]
     ret: Any = None                                       # scalar | {field:val}
+    truncated: list[str] = field(default_factory=list)    # capture sites where a cap dropped data
+
+    def args_truncated(self) -> bool:
+        """True if any truncation hit the arguments — i.e. the CONDITION may be incomplete."""
+        return any(not t.split(":", 1)[0].strip().startswith("ret") for t in self.truncated)
 
     def to_dict(self) -> dict: return asdict(self)
 
     @staticmethod
     def from_dict(d: dict) -> "Invocation":
-        return Invocation(method=d["method"], args=d.get("args", {}), ret=d.get("ret"))
+        return Invocation(method=d["method"], args=d.get("args", {}), ret=d.get("ret"),
+                          truncated=d.get("truncated", []))
 
 
 @dataclass

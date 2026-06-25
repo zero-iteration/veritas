@@ -92,10 +92,12 @@ def build_ledger(culled: list[CulledFact], labels: dict[str, Label], env: str,
     entries: list[LedgerEntry] = []
     for cf in culled:
         if cf.stability == Stability.NOISE:
-            continue  # quotiented out — never compared, never alarms
+            continue  # true noise (fully-observed yet varying) — quotiented out, never alarms
         lbl = labels.get(cf.fact.anchor) or Label(name=cf.fact.anchor, salience=Salience.MEDIUM,
                                                    group=cf.fact.anchor)
-        if cf.stability == Stability.STABLE and lbl.salience != Salience.LOW:
+        if cf.stability == Stability.CAPTURE_GAP:
+            status = "capture_gap"   # LOUD: recorded, not watched, not dropped — needs a capture fix
+        elif cf.stability == Stability.STABLE and lbl.salience != Salience.LOW:
             status = "watched"
         elif cf.stability == Stability.UNCONFIRMED:
             status = "unconfirmed"

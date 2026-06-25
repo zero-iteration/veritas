@@ -108,6 +108,7 @@ class Fact:
     sample_condition: Optional[dict] = None  # readable sample of the input (display/labeling only)
     op: Optional[str] = None              # STATE only: "read" | "write" (coupling direction)
     resource: Optional[str] = None        # STATE only: the external resource, e.g. "redis:price:SKU-42"
+    condition_complete: bool = True       # False if capture truncated the input -> condition is partial (§11.1)
 
     def key(self) -> tuple[str, str]:
         """Identity for grouping/diffing: a fact is the *same fact* across runs iff (anchor,
@@ -149,13 +150,16 @@ def project(obs: Observation) -> list[Fact]:
         facts.append(Fact(anchor=f"edge:{caller}->{callee}", condition="*", value=count,
                           kind=FactKind.FREQUENCY, method=caller, env=env))
 
-    # VALUE — every output leaf of every invocation, scoped by the canonicalized input.
+    # VALUE — every output leaf of every invocation, scoped by the canonicalized input. If capture
+    # truncated the args, the condition is only partially observed: mark it so variance-culling
+    # cannot mistake a collapsed condition for determinism (§11.1).
     for inv in obs.invocations:
         cond = condition_of(inv.args)
+        complete = not inv.args_truncated()
         for path, val in flatten_leaves(inv.ret, prefix="ret"):
             facts.append(Fact(anchor=f"{inv.method}#{path}", condition=cond, value=val,
                               kind=FactKind.VALUE, method=inv.method, path=path, env=env,
-                              sample_condition=inv.args or None))
+                              sample_condition=inv.args or None, condition_complete=complete))
 
     # CONFIG — live config values (run-scoped).
     for k, v in obs.config_live.items():

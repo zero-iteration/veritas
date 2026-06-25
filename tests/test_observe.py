@@ -269,6 +269,50 @@ def test_dark_coupling_regression_caught_at_resource():
     assert blast_surface(facts, "redis:pricing:version") == ["com.x.CheckoutCalc.compute"]
 
 
+# --------------------------------------------------------------------------- §11.1 capture completeness
+def _gap_obs(carrier, truncated, ts):
+    inv = Invocation(method="com.x.Sel.pick", args={"cands": [{"id": "X"}]},
+                     ret={"carrier": carrier}, truncated=truncated)
+    return Observation(id=f"g{ts}", fingerprint=EnvFingerprint(env="staging", git_sha="S1", timestamp=ts),
+                       methods_executed=["com.x.Sel.pick"], invocations=[inv])
+
+
+def test_truncated_condition_becomes_capture_gap_not_noise():
+    # The §11.1 false-negative: the field that decides `carrier` was truncated out of the args, so
+    # two distinct real inputs collapse to one observed condition and the deterministic carrier looks
+    # like it "varies." WITHOUT the marker this is silently branded NOISE and dropped — catastrophic.
+    # WITH the marker the engine refuses to judge it and raises a loud CAPTURE_GAP instead.
+    truncated = ["cands[0]: field cap 512 (700 fields)"]
+    rep = cull(project_all([_gap_obs("A", truncated, 1), _gap_obs("B", truncated, 2)]))
+    cf = next(c for c in rep.culled if c.fact.anchor == "com.x.Sel.pick#ret.carrier")
+    assert cf.stability == Stability.CAPTURE_GAP
+    assert "A" in cf.spread and "B" in cf.spread
+
+
+def test_same_variation_without_truncation_is_noise():
+    # identical scenario but fully captured -> the variation is real noise, correctly quotiented out
+    rep = cull(project_all([_gap_obs("A", [], 1), _gap_obs("B", [], 2)]))
+    cf = next(c for c in rep.culled if c.fact.anchor == "com.x.Sel.pick#ret.carrier")
+    assert cf.stability == Stability.NOISE
+
+
+def test_capture_gap_recorded_loud_not_watched():
+    truncated = ["cands[0]: field cap 512"]
+    res = build_baseline([_gap_obs("A", truncated, 1), _gap_obs("B", truncated, 2)], env="staging")
+    entry = next(e for e in res.ledger.entries if e.anchor == "com.x.Sel.pick#ret.carrier")
+    assert entry.status == "capture_gap"     # present and loud (not dropped like noise)...
+    assert entry.status != "watched"         # ...but never trusted as a verified observation
+    assert res.variance.summary().get("capture_gap") == 1
+
+
+def test_ret_only_truncation_does_not_poison_condition():
+    # truncation in the RETURN is not in the condition; a stable input must still be judgeable
+    t = ["ret.breakdown: field cap"]
+    rep = cull(project_all([_gap_obs("A", t, 1), _gap_obs("A", t, 2)]))
+    cf = next(c for c in rep.culled if c.fact.anchor == "com.x.Sel.pick#ret.carrier")
+    assert cf.stability == Stability.STABLE
+
+
 # --------------------------------------------------------------------------- real capture shape
 def test_end_to_end_on_real_sample_trace():
     here = os.path.dirname(__file__)

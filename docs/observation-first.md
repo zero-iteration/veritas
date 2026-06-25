@@ -141,6 +141,14 @@ and the canonicalization auditable in one place.
 
 These are limits to quantify and live inside, not bugs to paper over:
 
+- **Capture completeness (M1 — shipped).** A truncated argument collapses distinct inputs into one
+  observed condition, so a deterministic behavior gets mislabeled non-deterministic and silently
+  un-watched — the worst failure for a verifier. Fixed on both ends: the JVM agent unfolds args
+  fully and auto-nested (no allowlist needed) and emits a **loud `truncated` marker** whenever a cap
+  is still hit; the engine propagates that to `Fact.condition_complete=False`, and variance-culling
+  raises a `CAPTURE_GAP` (recorded loudly, never watched, with the values that disagree) instead of
+  a silent `NOISE` drop. Residual: with a >512-field arg or a >12-level hierarchy the marker fires
+  but the discriminating field can still be the dropped one — loud, but a capture you must then widen.
 - **Completeness of the declared/observed set** is now the load-bearing risk (it replaced
   "coverage of dark edges"). You catch only perturbations to observations you captured and watched.
   Better than the edge problem — it is human-sized, accretes (every incident → a new watched
@@ -148,8 +156,9 @@ These are limits to quantify and live inside, not bugs to paper over:
 - **Distributional observations** (frequency, latency) are detected and quarantined as `ignored`,
   not yet *judged*. The deterministic core is deliberately first; distribution-shift testing is the
   next layer, with its own (non-equality) divergence test.
-- **Condition reproduction is bounded for external side effects.** For a value behind a real GDS /
-  payment call, assert on the *outbound* observation (what we sent — replayable), not the round-trip.
+- **Condition reproduction is bounded for external side effects.** For a value behind a real
+  payment or third-party API call, assert on the *outbound* observation (what we sent — replayable),
+  not the round-trip.
 - **STATE condition granularity is coarse (v1).** Effect facts use condition `"*"`, so multiple
   writes to the *same* resource within one run collapse and look distributional/noisy. The common
   case (write-once-per-run) is fine; sequenced/repeated writes to one key need a per-access index in
