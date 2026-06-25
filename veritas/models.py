@@ -178,6 +178,7 @@ class Observation:
     invocations: list[Invocation] = field(default_factory=list)  # decision-site values
     config_live: dict[str, Any] = field(default_factory=dict)   # key -> observed-live value
     config_file: dict[str, Any] = field(default_factory=dict)   # key -> file-declared value (if known)
+    effects: list[dict] = field(default_factory=list)           # {"op","resource","value","method"}
     trace_ref: Optional[str] = None
 
     def methods_set(self) -> set[str]: return set(self.methods_executed)
@@ -191,7 +192,7 @@ class Observation:
             "methods_executed": self.methods_executed, "edges": self.edges,
             "invocations": [i.to_dict() for i in self.invocations],
             "config_live": self.config_live, "config_file": self.config_file,
-            "trace_ref": self.trace_ref,
+            "effects": self.effects, "trace_ref": self.trace_ref,
         }
 
     @staticmethod
@@ -201,7 +202,7 @@ class Observation:
             methods_executed=d.get("methods_executed", []), edges=d.get("edges", []),
             invocations=[Invocation.from_dict(i) for i in d.get("invocations", [])],
             config_live=d.get("config_live", {}), config_file=d.get("config_file", {}),
-            trace_ref=d.get("trace_ref"),
+            effects=d.get("effects", []), trace_ref=d.get("trace_ref"),
         )
 
 

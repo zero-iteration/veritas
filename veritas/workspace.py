@@ -15,6 +15,9 @@ from .models import (
 from .stores import ExpectationStore, ObservationStore, ingest_trace
 from .join import join, config_divergences
 from .predicates import evaluate
+from .observe import (
+    build_baseline, check_run, accept_run, LedgerStore, DeltaItem, StubLabeler, ClaudeLabeler,
+)
 
 
 class Workspace:
@@ -161,8 +164,8 @@ class Workspace:
             "suggested_request": endpoints[0] if endpoints else
                 {"method": "GET", "path": "<choose from `veritas endpoints`>", "body": None},
             "attach": self.capture_args(),     # how to instrument for the open expectations
-            "gaps_to_fill": ["auth token", "cohort/route data", "env-specific ids"],
-            "safety": "read-only by default; write/booking/payment paths require --allow-writes",
+            "gaps_to_fill": ["auth token", "cohort/segment data", "env-specific ids"],
+            "safety": "read-only by default; write/order/payment paths require --allow-writes",
             "next": "fire at an instrumented instance, then `veritas ingest <trace.json>` to auto-join",
         }
         return draft
@@ -175,6 +178,67 @@ class Workspace:
         obs = ingest_trace(trace, cfg, env)
         self.obs.add(obs)
         return obs
+
+    # -- observation-first layer (baseline / check / accept / show) --------
+    def _labeler(self, use_llm: bool):
+        return ClaudeLabeler() if use_llm else StubLabeler()
+
+    def observe_baseline(self, env: str = "staging", use_llm: bool = False, note: str = "") -> dict:
+        """Build the baseline ledger L0 from the stored observations for `env` (ideally several
+        repeats, so variance-culling can confirm determinism)."""
+        store = LedgerStore(self.vdir)
+        pool = self.obs.for_env(env)
+        if not pool:
+            return {"error": f"no observations for env={env}", "hint": "veritas ingest <trace> first"}
+        res = build_baseline(pool, env=env, version=store.next_version(),
+                             labeler=self._labeler(use_llm), note=note)
+        store.save(res.ledger)
+        return {"ledger": res.ledger.summary(), "variance": res.variance.summary()}
+
+    def observe_check(self, trace_path: str, env: str = "staging",
+                      delta: Optional[list[dict]] = None, config_file: Optional[str] = None) -> dict:
+        """Verify a new run against the baseline given the PRD's declared observation delta.
+        PASS iff every declared change happened and nothing else among watched facts moved."""
+        store = LedgerStore(self.vdir)
+        led = store.head()
+        if led is None:
+            return {"error": "no ledger", "hint": "run `veritas observe baseline` first"}
+        cfg = _parse_config(config_file) if config_file else None
+        obs = ingest_trace(json.load(open(trace_path)), cfg, env)
+        items = [DeltaItem.from_dict(d) for d in (delta or [])]
+        return check_run(led, [obs], env=env, delta=items).to_dict()
+
+    def observe_accept(self, trace_paths: list[str], env: str = "staging",
+                       use_llm: bool = False) -> dict:
+        """Advance the baseline: L0 <- A. The accepted run becomes the next version."""
+        store = LedgerStore(self.vdir)
+        led = store.head()
+        if led is None:
+            return {"error": "no ledger", "hint": "run `veritas observe baseline` first"}
+        obs = [ingest_trace(json.load(open(p)), None, env) for p in trace_paths]
+        new = accept_run(store, led, obs, env=env, labeler=self._labeler(use_llm))
+        return {"ledger": new.summary()}
+
+    def observe_show(self) -> dict:
+        led = LedgerStore(self.vdir).head()
+        if led is None:
+            return {"error": "no ledger", "hint": "run `veritas observe baseline` first"}
+        return {"summary": led.summary(),
+                "watched": [{"anchor": e.anchor, "value": e.fact.value,
+                             "salience": e.label.salience.value, "name": e.label.name}
+                            for e in led.watched()]}
+
+    def observe_couplings(self, env: str = "staging") -> dict:
+        """The coupling graph through shared external resources — observation-to-observation edges
+        that method-anchored capture cannot see. Descriptive: what is observably coupled."""
+        from .observe import couplings, coupling_edges, run_facts
+        pool = self.obs.for_env(env)
+        if not pool:
+            return {"error": f"no observations for env={env}", "hint": "veritas ingest <trace> first"}
+        facts = run_facts(pool, env)
+        cs = [c for c in couplings(facts) if c.is_coupling]
+        return {"couplings": [c.to_dict() for c in cs],
+                "edges": [e.to_dict() for e in coupling_edges(facts)]}
 
 
 def _parse_config(path: str) -> dict:

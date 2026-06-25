@@ -59,6 +59,24 @@ def cmd_capture_args(a):
     print(json.dumps(_ws(a).capture_args(), indent=2))
 
 
+def cmd_observe(a):
+    ws = _ws(a)
+    if a.observe_cmd == "baseline":
+        out = ws.observe_baseline(env=a.env or "staging", use_llm=a.llm, note=a.note or "")
+    elif a.observe_cmd == "check":
+        delta = json.loads(a.delta) if a.delta else []
+        out = ws.observe_check(a.trace, env=a.env or "staging", delta=delta, config_file=a.config)
+        print(json.dumps(out, indent=2, default=str))
+        return 1 if out.get("verdict") in ("REGRESSION", "INCOMPLETE") else 0
+    elif a.observe_cmd == "accept":
+        out = ws.observe_accept(a.trace, env=a.env or "staging", use_llm=a.llm)
+    elif a.observe_cmd == "couplings":
+        out = ws.observe_couplings(env=a.env or "staging")
+    else:  # show
+        out = ws.observe_show()
+    print(json.dumps(out, indent=2, default=str))
+
+
 def cmd_list(a):
     ws = _ws(a)
     for e in ws.exp.all():
@@ -104,6 +122,20 @@ def build_parser() -> argparse.ArgumentParser:
     pca.set_defaults(fn=cmd_capture_args)
 
     pl = s.add_parser("list", help="list expectations + observations"); pl.set_defaults(fn=cmd_list)
+
+    po = s.add_parser("observe", help="observation-first: baseline / check / accept / show")
+    os_ = po.add_subparsers(dest="observe_cmd", required=True)
+    ob = os_.add_parser("baseline", help="build the baseline ledger from stored observations")
+    ob.add_argument("--env"); ob.add_argument("--llm", action="store_true"); ob.add_argument("--note")
+    oc = os_.add_parser("check", help="verify a new trace against the ledger + a declared delta")
+    oc.add_argument("trace"); oc.add_argument("--env"); oc.add_argument("--config")
+    oc.add_argument("--delta", help="JSON list of declared observation changes")
+    oa = os_.add_parser("accept", help="advance the baseline (L0 <- A) from one or more traces")
+    oa.add_argument("trace", nargs="+"); oa.add_argument("--env"); oa.add_argument("--llm", action="store_true")
+    os_.add_parser("show", help="show the current ledger (watched observations)")
+    ocp = os_.add_parser("couplings", help="coupling graph through shared external resources")
+    ocp.add_argument("--env")
+    po.set_defaults(fn=cmd_observe)
     return p
 
 
@@ -113,4 +145,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)   # propagate the non-zero exit from `observe check` (CI gate)

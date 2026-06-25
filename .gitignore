@@ -14,3 +14,4 @@ classes/
 *.class
 samples/**/trace.json
 veritas-agent/dependency-reduced-pom.xml
+.venv/

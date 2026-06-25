@@ -109,5 +109,6 @@ def ingest_trace(trace: dict, config_file: Optional[dict] = None, env_override: 
         invocations=invs,
         config_live=trace.get("config_live", {}),
         config_file=config_file or trace.get("config_file", {}),
+        effects=trace.get("effects", []),
         trace_ref=trace.get("trace_ref", oid),
     )
